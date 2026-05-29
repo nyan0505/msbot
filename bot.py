@@ -9,7 +9,12 @@ from tools.m365_search import format_sources, get_obo_token, search_m365
 
 class TeamsBot(ActivityHandler):
     async def on_message_activity(self, turn_context: TurnContext) -> None:
-        text = (turn_context.activity.text or "").strip()
+        raw_text = turn_context.remove_recipient_mention(turn_context.activity)
+        text = (raw_text or turn_context.activity.text or "").strip()
+
+        if self._is_greeting(text):
+            await turn_context.send_activity("hello back")
+            return
 
         if not text or text.strip("/").lower() == "agent":
             await turn_context.send_activity(
@@ -62,3 +67,18 @@ class TeamsBot(ActivityHandler):
             return get_obo_token(sso_token)
         except PermissionError:
             return None
+
+    @staticmethod
+    def _is_greeting(text: str) -> bool:
+        normalized = " ".join(text.lower().split())
+        return normalized in {
+            "hi",
+            "hello",
+            "hey",
+            "hi ai",
+            "hello ai",
+            "hey ai",
+            "hi bot",
+            "hello bot",
+            "hey bot",
+        }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import msal
@@ -7,6 +8,7 @@ import msal
 from .config import get_settings
 
 _MSAL_RESERVED_SCOPES = {"openid", "profile", "offline_access"}
+_MSAL_DEVICE_FLOW_RETRIABLE_ERRORS = {"authorization_pending", "slow_down"}
 
 
 class AuthenticationError(RuntimeError):
@@ -48,7 +50,7 @@ def get_access_token() -> str:
             raise AuthenticationError(f"Failed to start device-code flow: {flow}")
 
         print(flow.get("message", "Open the provided URL and complete Microsoft sign-in."))
-        result = app.acquire_token_by_device_flow(flow)
+        result = _acquire_token_by_device_flow(app, flow)
 
     _save_token_cache(cache, settings.token_cache_path)
 
@@ -57,3 +59,22 @@ def get_access_token() -> str:
         raise AuthenticationError(f"Failed to get Microsoft Graph access token: {description}")
 
     return result["access_token"]
+
+
+def _acquire_token_by_device_flow(
+    app: msal.PublicClientApplication,
+    flow: dict,
+) -> dict:
+    while True:
+        result = app.acquire_token_by_device_flow(flow, exit_condition=lambda _: True)
+        if "access_token" in result:
+            return result
+
+        error = result.get("error")
+        if error not in _MSAL_DEVICE_FLOW_RETRIABLE_ERRORS:
+            return result
+
+        interval = max(int(flow.get("interval", 5)), 1)
+        if error == "slow_down":
+            interval += 5
+        time.sleep(interval)
