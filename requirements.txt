@@ -2,3 +2,5 @@ microsoft-agents-hosting-aiohttp
 httpx
 msal
 python-dotenv
+mcp
+authlib
