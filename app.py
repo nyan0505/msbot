@@ -31,8 +31,28 @@ def _is_loopback_request(request: web.Request) -> bool:
         return remote in {"localhost"}
 
 
+def _cors_headers(request: web.Request) -> dict[str, str]:
+    origin = request.headers.get("Origin")
+    if not origin:
+        return {}
+    requested_headers = request.headers.get("Access-Control-Request-Headers")
+    allow_headers = requested_headers or "Authorization,Content-Type,Accept"
+    return {
+        "Access-Control-Allow-Origin": origin,
+        "Vary": "Origin",
+        "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+        "Access-Control-Allow-Headers": allow_headers,
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Max-Age": "600",
+    }
+
+
 @web.middleware
 async def local_dev_auth_middleware(request: web.Request, handler):
+    # Web Chat may perform browser preflight before POSTing activities.
+    if request.method == "OPTIONS":
+        return web.Response(status=204, headers=_cors_headers(request))
+
     if _is_loopback_request(request) and not request.headers.get("Authorization"):
         request["claims_identity"] = JwtTokenValidator(auth_config).get_anonymous_claims()
         return await handler(request)
@@ -42,6 +62,8 @@ async def local_dev_auth_middleware(request: web.Request, handler):
 @web.middleware
 async def request_debug_middleware(request: web.Request, handler):
     response = await handler(request)
+    for key, value in _cors_headers(request).items():
+        response.headers.setdefault(key, value)
     print(
         f"[{request.method}] {request.path} remote={request.remote} "
         f"auth={'yes' if request.headers.get('Authorization') else 'no'} "
@@ -65,6 +87,7 @@ async def messages(req: web.Request) -> web.Response:
 app = web.Application(middlewares=[request_debug_middleware, local_dev_auth_middleware])
 app["agent_configuration"] = auth_config
 app.router.add_get("/api/messages", lambda _: web.Response(status=200))
+app.router.add_options("/api/messages", lambda _: web.Response(status=204))
 app.router.add_post("/api/messages", messages)
 
 if __name__ == "__main__":
